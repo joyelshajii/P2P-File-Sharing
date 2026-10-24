@@ -1,0 +1,87 @@
+@import "tailwindcss";
+
+:root {
+  --dp-color-ground: #000000;
+  --dp-color-ink: #66ff66;
+  --dp-color-ink-muted: #58ca58;
+  --dp-color-rule: #255325;
+  --dp-color-emphasis: #ffffff;
+  --dp-typography-face: "IBM Plex Mono", "TerminalPlex", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  --dp-typography-body: 16px;
+  --dp-typography-label: 14px;
+  --dp-typography-heading: 22px;
+  --dp-typography-display: 36px;
+  --dp-typography-display-narrow: 28px;
+  --dp-typography-body-leading: 1.5;
+  --dp-typography-display-leading: 1.2;
+  --dp-typography-display-leading-narrow: 1.25;
+  --dp-typography-list-leading: 24px;
+  --dp-spacing-cell: 1ch;
+  --dp-spacing-gutter: 2ch;
+  --dp-spacing-column-gap: 3ch;
+  --dp-spacing-column-gap-wide: 4ch;
+  --dp-spacing-inset: 9px;
+  --dp-spacing-row-compact: 18px;
+  --dp-spacing-row: 27px;
+  --dp-spacing-section-compact: 36px;
+  --dp-spacing-section: 54px;
+  --dp-radius-control: 0;
+  --dp-border-hairline: 1px;
+  --dp-motion-cursor: 1.2s;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  background-color: var(--dp-color-ground);
+  color: var(--dp-color-ink);
+  font-family: var(--dp-typography-face);
+  font-size: var(--dp-typography-body);
+  line-height: var(--dp-typography-body-leading);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  min-height: 100vh;
+}
+
+/* Custom scrollbar for authentic terminal look */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: #000000;
+  border-left: 1px solid var(--dp-color-rule);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--dp-color-rule);
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--dp-color-ink-muted);
+}
+
+/* Blinking terminal cursor */
+@keyframes blink {
+  0%, 49% { opacity: 1; }
+  50%, 100% { opacity: 0; }
+}
+
+.cursor-blink {
+  animation: blink var(--dp-motion-cursor) steps(1) infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cursor-blink {
+    animation: none;
+    opacity: 1;
+  }
+}
+
+/* Terminal focus ring styling */
+:focus-visible {
+  outline: 2px solid var(--dp-color-emphasis);
+  outline-offset: 2px;
+}
