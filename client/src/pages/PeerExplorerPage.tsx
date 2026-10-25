@@ -1,20 +1,49 @@
 import { useState } from 'react';
-import { Users, Activity, RefreshCw } from 'lucide-react';
+import { Users, Activity, RefreshCw, Copy, ExternalLink, Link2, Check, ArrowRight } from 'lucide-react';
 import type { PeerNode } from '../types/p2p';
 import { formatBytes, formatSpeed } from '../lib/crypto';
 
 interface PeerExplorerPageProps {
   peers: PeerNode[];
   activeMode: 'simulation' | 'webrtc';
+  localPeerId: string;
+  onConnectToPeer: (peerId: string) => void;
+  onOpenSecondPeer: () => void;
   onRefresh?: () => void;
 }
 
 export const PeerExplorerPage: React.FC<PeerExplorerPageProps> = ({
   peers,
   activeMode,
+  localPeerId,
+  onConnectToPeer,
+  onOpenSecondPeer,
   onRefresh,
 }) => {
   const [selectedPeer, setSelectedPeer] = useState<PeerNode | null>(peers[0] || null);
+  const [manualPeerInput, setManualPeerInput] = useState('');
+  const [copiedId, setCopiedId] = useState(false);
+  const [copiedLink, setCopiedLink] = useState(false);
+
+  const handleCopyId = () => {
+    navigator.clipboard.writeText(localPeerId);
+    setCopiedId(true);
+    setTimeout(() => setCopiedId(false), 2000);
+  };
+
+  const handleCopyLink = () => {
+    const url = `${window.location.origin}/?connect=${localPeerId}&mode=webrtc`;
+    navigator.clipboard.writeText(url);
+    setCopiedLink(true);
+    setTimeout(() => setCopiedLink(false), 2000);
+  };
+
+  const handleManualConnect = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!manualPeerInput.trim()) return;
+    onConnectToPeer(manualPeerInput.trim());
+    setManualPeerInput('');
+  };
 
   const getStatusBadge = (status: PeerNode['status']) => {
     switch (status) {
@@ -37,28 +66,99 @@ export const PeerExplorerPage: React.FC<PeerExplorerPageProps> = ({
         <div>
           <h2 className="text-base font-bold text-[#66ff66] flex items-center gap-2">
             <span>[03_PEER_EXPLORER]</span>
-            <span className="text-[#ffffff]">SWARM TOPOLOGY & PEER STATUS</span>
+            <span className="text-[#ffffff]">SWARM TOPOLOGY & PEER CONNECTIONS</span>
           </h2>
           <p className="text-xs text-[#58ca58] mt-1 max-w-3xl">
-            Inspect discovered swarm nodes, active WebRTC DataChannel states, piece availability bitfields, 
-            and real-time transfer bandwidth.
+            In Peer-to-Peer architecture, computers connect directly without storing files on a server. 
+            Connect to other peers in separate browser tabs or over your local Wi-Fi network below.
           </p>
         </div>
 
         <div className="flex items-center gap-2 text-xs">
-          <span className="border border-[#255325] px-2.5 py-1 text-[#58ca58]">
-            SWARM PROTOCOL: <span className="text-[#ffffff] font-bold">BITSTREAM/1.0</span>
-          </span>
+          <button
+            type="button"
+            onClick={onOpenSecondPeer}
+            className="bg-[#66ff66] text-[#000000] font-bold px-3 py-1.5 border border-[#66ff66] hover:bg-[#ffffff] transition-colors cursor-pointer flex items-center gap-1.5"
+          >
+            <ExternalLink className="w-3.5 h-3.5" />
+            [ + OPEN 2ND PEER TAB ]
+          </button>
           {onRefresh && (
             <button
               type="button"
               onClick={onRefresh}
-              className="border border-[#255325] hover:border-[#66ff66] text-[#58ca58] hover:text-[#ffffff] px-2.5 py-1 cursor-pointer flex items-center gap-1"
+              className="border border-[#255325] hover:border-[#66ff66] text-[#58ca58] hover:text-[#ffffff] px-2.5 py-1.5 cursor-pointer flex items-center gap-1"
             >
               <RefreshCw className="w-3 h-3" />
               [ REQUERY TRACKER ]
             </button>
           )}
+        </div>
+      </div>
+
+      {/* HOW TO CONNECT TO A PEER GUIDE & CONTROLS */}
+      <div className="border border-[#255325] bg-[#000000] p-4 space-y-3">
+        <div className="flex items-center justify-between border-b border-[#255325] pb-2 text-xs">
+          <span className="font-bold text-[#66ff66] flex items-center gap-2">
+            <Link2 className="w-4 h-4 text-[#66ff66]" />
+            // HOW TO CONNECT PEERS (REAL P2P NETWORKING)
+          </span>
+          <span className="text-[11px] text-[#58ca58]">DIRECT WEBRTC DATACHANNELS</span>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+          {/* Left: Your Peer ID & Share Links */}
+          <div className="space-y-2 border border-[#255325]/60 p-3 bg-black">
+            <div className="text-[11px] text-[#58ca58]">YOUR UNIQUE PEER ID:</div>
+            <div className="flex items-center gap-2">
+              <span className="bg-[#255325]/30 border border-[#66ff66] text-[#ffffff] px-3 py-1 font-bold text-sm tracking-wide">
+                {localPeerId}
+              </span>
+              <button
+                type="button"
+                onClick={handleCopyId}
+                className="border border-[#255325] hover:border-[#66ff66] text-[#58ca58] hover:text-[#ffffff] px-2.5 py-1 flex items-center gap-1 cursor-pointer"
+              >
+                {copiedId ? <Check className="w-3 h-3 text-[#66ff66]" /> : <Copy className="w-3 h-3" />}
+                <span>{copiedId ? 'COPIED!' : 'COPY ID'}</span>
+              </button>
+              <button
+                type="button"
+                onClick={handleCopyLink}
+                className="border border-[#255325] hover:border-[#66ff66] text-[#58ca58] hover:text-[#ffffff] px-2.5 py-1 flex items-center gap-1 cursor-pointer"
+              >
+                {copiedLink ? <Check className="w-3 h-3 text-[#66ff66]" /> : <Link2 className="w-3 h-3" />}
+                <span>{copiedLink ? 'LINK COPIED!' : 'INVITE LINK'}</span>
+              </button>
+            </div>
+            <p className="text-[11px] text-[#58ca58] leading-relaxed">
+              Send this link to another computer or phone on the same Wi-Fi network to transfer files directly!
+            </p>
+          </div>
+
+          {/* Right: Manual Peer Connect Form */}
+          <div className="space-y-2 border border-[#255325]/60 p-3 bg-black">
+            <div className="text-[11px] text-[#58ca58]">DIRECT CONNECT TO REMOTE PEER:</div>
+            <form onSubmit={handleManualConnect} className="flex gap-2">
+              <input
+                type="text"
+                placeholder="e.g. peer-ABC123"
+                value={manualPeerInput}
+                onChange={(e) => setManualPeerInput(e.target.value)}
+                className="bg-black border border-[#255325] focus:border-[#66ff66] text-[#ffffff] px-3 py-1 text-xs font-mono flex-1 outline-none"
+              />
+              <button
+                type="submit"
+                className="bg-[#255325] hover:bg-[#66ff66] hover:text-[#000000] text-[#ffffff] border border-[#66ff66] px-3 py-1 text-xs font-bold transition-colors cursor-pointer flex items-center gap-1 shrink-0"
+              >
+                <span>[ CONNECT ]</span>
+                <ArrowRight className="w-3 h-3" />
+              </button>
+            </form>
+            <p className="text-[11px] text-[#58ca58] leading-relaxed">
+              Or click <strong>[ + OPEN 2ND PEER TAB ]</strong> above to test a 2-node P2P swarm right in your browser.
+            </p>
+          </div>
         </div>
       </div>
 
@@ -75,8 +175,21 @@ export const PeerExplorerPage: React.FC<PeerExplorerPageProps> = ({
         </div>
 
         {peers.length === 0 ? (
-          <div className="text-center py-8 text-xs text-[#58ca58]/60 italic">
-            -- No active peers connected. Click "Start Demo" to run simulation or open another browser tab in WebRTC mode --
+          <div className="text-center py-8 text-xs text-[#58ca58] space-y-3">
+            <div className="text-[#ffff66] font-bold">
+              -- No other peers connected yet --
+            </div>
+            <p className="max-w-md mx-auto text-[11px] text-[#58ca58]">
+              Peer-to-Peer file sharing requires at least 2 peers. Click below to open a second tab and watch them connect directly!
+            </p>
+            <button
+              type="button"
+              onClick={onOpenSecondPeer}
+              className="bg-[#66ff66] text-[#000000] font-bold px-4 py-2 border border-[#66ff66] hover:bg-[#ffffff] transition-colors cursor-pointer text-xs inline-flex items-center gap-2"
+            >
+              <ExternalLink className="w-4 h-4" />
+              [ OPEN 2ND PEER IN NEW TAB / WINDOW ]
+            </button>
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -123,7 +236,7 @@ export const PeerExplorerPage: React.FC<PeerExplorerPageProps> = ({
 
                       <td className="p-2 text-[#58ca58]">
                         <span className="border border-[#255325] px-1.5 py-0.5 text-[10px] text-[#ffffff]">
-                          {peer.connectionType === 'simulation' ? 'Simulated Loopback' : 'WebRTC DataChannel'}
+                          {peer.connectionType === 'simulation' ? 'Simulated Loopback' : 'Direct WebRTC DataChannel'}
                         </span>
                       </td>
 

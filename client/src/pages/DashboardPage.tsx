@@ -1,4 +1,4 @@
-import { Users, HardDrive, DownloadCloud, Database, ArrowRight, Play } from 'lucide-react';
+import { Users, HardDrive, DownloadCloud, Database, ArrowRight, Play, ExternalLink } from 'lucide-react';
 import { MetricCard } from '../components/MetricCard';
 import { NetworkVisualizer } from '../components/NetworkVisualizer';
 import { EventLog } from '../components/EventLog';
@@ -20,6 +20,7 @@ interface DashboardPageProps {
   simulationState: SimulationState;
   onNavigate: (tab: NavTab) => void;
   onStartDemo: () => void;
+  onOpenSecondPeer: () => void;
 }
 
 export const DashboardPage: React.FC<DashboardPageProps> = ({
@@ -35,6 +36,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
   simulationState,
   onNavigate,
   onStartDemo,
+  onOpenSecondPeer,
 }) => {
   const isTransferActive = simulationState.isRunning || activeDownloadsCount > 0;
   const connectedPeersCount = peers.filter((p) => p.status === 'connected').length;
@@ -45,19 +47,31 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
       <div className="border border-[#255325] bg-[#000000] p-4 flex flex-wrap items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2">
-            <span className="text-[#66ff66] font-bold text-sm">SYSTEM STATUS:</span>
+            <span className="text-[#66ff66] font-bold text-sm">PEER NODE:</span>
             <span className="text-[#ffffff] bg-[#255325] px-2 py-0.5 text-xs font-bold">
-              {activeMode === 'simulation' ? 'SIMULATION MODE (OFFLINE DEMO READY)' : 'WEBRTC ACTIVE SWARM'}
+              {localPeerId}
+            </span>
+            <span className="text-xs text-[#58ca58]">
+              // {activeMode === 'simulation' ? 'SIMULATION MODE (OFFLINE DEMO READY)' : 'DIRECT WEBRTC SWARM'}
             </span>
           </div>
           <p className="text-xs text-[#58ca58] mt-1 max-w-2xl leading-relaxed">
             Direct peer-to-peer file transfer engine inspired by BitTorrent. Chunks are negotiated 
-            via WebRTC DataChannels or deterministic loopback simulation. Zero payload data is 
+            via WebRTC DataChannels or deterministic simulation. Zero payload bytes are 
             stored on the signaling server.
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={onOpenSecondPeer}
+            className="bg-[#255325] hover:bg-[#66ff66] hover:text-[#000000] text-[#ffffff] font-bold px-3 py-2 border border-[#66ff66] transition-colors cursor-pointer text-xs flex items-center gap-1.5"
+            title="Open a 2nd peer tab/window to test real browser-to-browser P2P"
+          >
+            <ExternalLink className="w-3.5 h-3.5" />
+            [ + OPEN 2ND PEER TAB ]
+          </button>
           <button
             type="button"
             onClick={onStartDemo}
@@ -83,7 +97,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
           index="01"
           label="ONLINE_PEERS"
           value={connectedPeersCount}
-          subValue={activeMode === 'simulation' ? '3 Simulated Nodes' : 'Direct WebRTC mesh'}
+          subValue={activeMode === 'simulation' ? '3 Simulated Nodes' : `${connectedPeersCount} Direct WebRTC peers`}
           icon={Users}
           badge={activeMode.toUpperCase()}
         />
@@ -128,17 +142,20 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
             isSimulation={activeMode === 'simulation'}
           />
 
-          {/* Quick Concept Explainer Callout */}
+          {/* Explicit Networking Architecture Callout */}
           <div className="border border-[#255325] bg-[#000000] p-3 text-xs space-y-2">
             <div className="flex items-center justify-between text-[#66ff66] font-bold border-b border-[#255325] pb-1">
-              <span>// NETWORKING ARCHITECTURE NOTE</span>
-              <span className="text-[#58ca58] text-[11px]">RFC-P2P-EDUCATIONAL</span>
+              <span>// HOW IS THIS PEER-TO-PEER? (NETWORKING CONCEPT EXPLAINED)</span>
+              <span className="text-[#58ca58] text-[11px]">RFC-P2P</span>
             </div>
-            <p className="text-[#58ca58] text-xs leading-relaxed">
-              <strong className="text-[#ffffff]">Signaling vs Data Plane Separation:</strong> Socket.IO brokers 
-              session connection metadata (SDP Offer/Answer & ICE Candidates). Once the handshake 
-              completes, the file payload travels directly through browser-to-browser SCTP/DTLS DataChannels. 
-              The central tracker never receives, caches, or serves file chunks.
+            <p className="text-[#ffffff] text-xs leading-relaxed">
+              <strong>Why does a server exist?</strong> In WebRTC and BitTorrent, web browsers <em>cannot</em> discover 
+              each other's IP addresses without an initial "rendezvous". The Node.js server (port 9001) acts strictly 
+              as an address book (Signaling Tracker) for exchanging connection offers.
+            </p>
+            <p className="text-[#66ff66] text-xs leading-relaxed font-bold">
+              ZERO FILE DATA PASSES THROUGH THE SERVER. All file chunks are transferred directly from 
+              browser-to-browser across encrypted WebRTC DataChannels (SCTP/DTLS).
             </p>
           </div>
         </div>

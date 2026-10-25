@@ -29,6 +29,7 @@ export class WebRTCManager {
     session: DownloadSession;
     chunksData: Map<number, Uint8Array>;
   }> = new Map();
+  private pendingCandidates: Map<string, RTCIceCandidateInit[]> = new Map();
 
   private isConnectedToSignaling = false;
   private onEventCallback: WebRTCEventCallback | null = null;
@@ -43,7 +44,15 @@ export class WebRTCManager {
   };
 
   constructor() {
-    this.localPeerId = 'peer-' + Math.random().toString(36).substring(2, 8).toUpperCase();
+    // Generate a unique peer ID for this browser tab
+    // Persist per-tab in sessionStorage so page refreshes in the same tab keep the same Peer ID!
+    const saved = sessionStorage.getItem('peerlink_peer_id');
+    if (saved) {
+      this.localPeerId = saved;
+    } else {
+      this.localPeerId = 'peer-' + Math.random().toString(36).substring(2, 8).toUpperCase();
+      sessionStorage.setItem('peerlink_peer_id', this.localPeerId);
+    }
   }
 
   public getLocalPeerId(): string {
@@ -62,6 +71,10 @@ export class WebRTCManager {
     this.onDownloadUpdateCallback = cb;
   }
 
+  public getLocalFiles(): FileMetadata[] {
+    return Array.from(this.localFiles.values()).map(f => f.metadata);
+  }
+
   public connectToSignaling(serverUrl = 'http://localhost:9001') {
     if (this.socket) {
       this.socket.disconnect();
@@ -70,7 +83,7 @@ export class WebRTCManager {
     try {
       this.socket = io(serverUrl, {
         transports: ['websocket', 'polling'],
-        reconnectionAttempts: 5,
+        reconnectionAttempts: 10,
         timeout: 5000,
       });
 
@@ -81,7 +94,7 @@ export class WebRTCManager {
           level: 'success',
           source: 'Signaling Client',
           target: serverUrl,
-          details: `Signaling established with Tracker at ${serverUrl}. Socket ID: ${this.socket?.id}`,
+          details: `Signaling established with Tracker at ${serverUrl}. Node registered as ${this.localPeerId}`,
           isSimulated: false,
         });
 
@@ -104,7 +117,6 @@ export class WebRTCManager {
 
       this.socket.on('connect_error', () => {
         this.isConnectedToSignaling = false;
-        // Quiet warning, don't throw - user can use simulation mode or start server
         this.notifyState();
       });
 
@@ -127,20 +139,28 @@ export class WebRTCManager {
         this.handlePeerLeft(peerId);
       });
 
-      // Swarm file announcements
+      // Swarm file announcements list (received on join)
+      this.socket.on('file:list', (files: FileMetadata[]) => {
+        files.forEach(metadata => {
+          if (!this.announcedFiles.has(metadata.id)) {
+            this.announcedFiles.set(metadata.id, metadata);
+          }
+        });
+        this.notifyState();
+      });
+
+      // Swarm file announcement broadcast
       this.socket.on('file:announced', (metadata: FileMetadata) => {
-        if (!this.announcedFiles.has(metadata.id)) {
-          this.announcedFiles.set(metadata.id, metadata);
-          this.logEvent({
-            type: 'FILE_ANNOUNCED',
-            level: 'info',
-            source: metadata.seeders[0] || 'Swarm Peer',
-            target: 'Local Peer',
-            details: `New file announced in swarm: "${metadata.name}" (${(metadata.size / 1024).toFixed(1)} KiB, ${metadata.totalChunks} chunks)`,
-            isSimulated: false,
-          });
-          this.notifyState();
-        }
+        this.announcedFiles.set(metadata.id, metadata);
+        this.logEvent({
+          type: 'FILE_ANNOUNCED',
+          level: 'info',
+          source: metadata.seeders[0] || 'Swarm Peer',
+          target: 'Local Peer',
+          details: `New file announced in swarm: "${metadata.name}" (${(metadata.size / 1024).toFixed(1)} KiB, ${metadata.totalChunks} chunks)`,
+          isSimulated: false,
+        });
+        this.notifyState();
       });
 
       // WebRTC Signaling Handshake (SDP Offer / Answer / ICE)
@@ -161,13 +181,19 @@ export class WebRTCManager {
     }
   }
 
+  public connectToPeer(targetPeerId: string) {
+    if (!targetPeerId || targetPeerId === this.localPeerId) return;
+    this.handleDiscoveredPeer(targetPeerId);
+    this.initiateWebRTCConnection(targetPeerId);
+  }
+
   private handleDiscoveredPeer(peerId: string) {
     if (this.connectedPeers.has(peerId)) return;
 
     const newPeer: PeerNode = {
       id: peerId,
       name: `Peer-${peerId.slice(-4)}`,
-      ip: '127.0.0.1 (NAT/LAN)',
+      ip: '127.0.0.1 (Direct P2P)',
       port: 50000 + Math.floor(Math.random() * 10000),
       status: 'handshaking',
       connectionType: 'webrtc',
@@ -175,7 +201,7 @@ export class WebRTCManager {
       downloadSpeed: 0,
       bytesExchanged: 0,
       availableChunks: [],
-      rtt: 15 + Math.floor(Math.random() * 20),
+      rtt: 12 + Math.floor(Math.random() * 15),
     };
 
     this.connectedPeers.set(peerId, newPeer);
@@ -190,7 +216,7 @@ export class WebRTCManager {
 
     this.notifyState();
 
-    // Initiator peer creates offer
+    // Initiator rule: Peer with lower ID creates the SDP offer
     if (this.localPeerId < peerId) {
       this.initiateWebRTCConnection(peerId);
     }
@@ -202,6 +228,7 @@ export class WebRTCManager {
     this.peerConnections.delete(peerId);
     this.dataChannels.delete(peerId);
     this.connectedPeers.delete(peerId);
+    this.pendingCandidates.delete(peerId);
 
     this.logEvent({
       type: 'PEER_DISCONNECTED',
@@ -218,7 +245,7 @@ export class WebRTCManager {
       const pc = new RTCPeerConnection(this.rtcConfig);
       this.peerConnections.set(targetPeerId, pc);
 
-      // Create DataChannel
+      // Create DataChannel (Ordered binary)
       const dc = pc.createDataChannel('peerlink-datachannel', { ordered: true });
       this.setupDataChannel(targetPeerId, dc);
 
@@ -246,7 +273,7 @@ export class WebRTCManager {
         level: 'info',
         source: this.localPeerId,
         target: targetPeerId,
-        details: `Sent SDP Offer to ${targetPeerId} via Socket.IO tracker`,
+        details: `Sent WebRTC SDP Offer to ${targetPeerId} via Signaling Tracker`,
         isSimulated: false,
       });
     } catch (err) {
@@ -274,6 +301,14 @@ export class WebRTCManager {
       };
 
       await pc.setRemoteDescription(new RTCSessionDescription(offer));
+
+      // Process any pending ICE candidates
+      const pending = this.pendingCandidates.get(fromPeerId) || [];
+      for (const candidate of pending) {
+        await pc.addIceCandidate(new RTCIceCandidate(candidate));
+      }
+      this.pendingCandidates.delete(fromPeerId);
+
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
 
@@ -300,17 +335,34 @@ export class WebRTCManager {
     const pc = this.peerConnections.get(fromPeerId);
     if (pc) {
       await pc.setRemoteDescription(new RTCSessionDescription(answer));
+
+      // Drain pending candidates
+      const pending = this.pendingCandidates.get(fromPeerId) || [];
+      for (const candidate of pending) {
+        try {
+          await pc.addIceCandidate(new RTCIceCandidate(candidate));
+        } catch (e) {
+          console.warn('ICE drain error:', e);
+        }
+      }
+      this.pendingCandidates.delete(fromPeerId);
     }
   }
 
   private async handleIncomingIceCandidate(fromPeerId: string, candidate: RTCIceCandidateInit) {
     const pc = this.peerConnections.get(fromPeerId);
-    if (pc && candidate) {
-      try {
-        await pc.addIceCandidate(new RTCIceCandidate(candidate));
-      } catch (e) {
-        console.warn('ICE candidate addition error:', e);
-      }
+    if (!pc || !pc.remoteDescription) {
+      // Queue until remote description is set
+      const list = this.pendingCandidates.get(fromPeerId) || [];
+      list.push(candidate);
+      this.pendingCandidates.set(fromPeerId, list);
+      return;
+    }
+
+    try {
+      await pc.addIceCandidate(new RTCIceCandidate(candidate));
+    } catch (e) {
+      console.warn('ICE candidate addition error:', e);
     }
   }
 
@@ -328,7 +380,7 @@ export class WebRTCManager {
         level: 'success',
         source: 'WebRTC SCTP',
         target: remotePeerId,
-        details: `DIRECT PEER-TO-PEER DATACHANNEL OPENED with ${remotePeerId}. Server bypassed!`,
+        details: `DIRECT P2P DATACHANNEL OPENED with ${remotePeerId}. Server bypassed! Chunks will transfer directly between browsers.`,
         isSimulated: false,
       });
       this.notifyState();
@@ -370,14 +422,19 @@ export class WebRTCManager {
 
         const dc = this.dataChannels.get(remotePeerId);
         if (dc && dc.readyState === 'open') {
-          // Send chunk header first, then binary payload
-          dc.send(JSON.stringify({
-            type: 'CHUNK_HEADER',
-            fileId,
-            chunkIndex,
-            size: chunkBytes.byteLength,
-          }));
-          dc.send(chunkBytes.buffer as ArrayBuffer);
+          // Send self-contained atomic binary chunk packet:
+          // [4 bytes chunkIndex][4 bytes fileIdLength][N bytes fileId][chunkBytes]
+          const enc = new TextEncoder();
+          const fileIdBytes = enc.encode(fileId);
+          const packet = new Uint8Array(8 + fileIdBytes.length + chunkBytes.length);
+          const view = new DataView(packet.buffer);
+
+          view.setUint32(0, chunkIndex, false);
+          view.setUint32(4, fileIdBytes.length, false);
+          packet.set(fileIdBytes, 8);
+          packet.set(chunkBytes, 8 + fileIdBytes.length);
+
+          dc.send(packet.buffer as ArrayBuffer);
 
           // Update metrics
           const peer = this.connectedPeers.get(remotePeerId);
@@ -391,50 +448,61 @@ export class WebRTCManager {
             level: 'info',
             source: 'Local Seeder',
             target: remotePeerId,
-            details: `Transferred Chunk #${chunkIndex} (${(chunkBytes.byteLength / 1024).toFixed(1)} KiB) directly to peer over WebRTC DataChannel`,
+            details: `[DIRECT P2P] Transferred Chunk #${chunkIndex} (${(chunkBytes.byteLength / 1024).toFixed(1)} KiB) directly to peer over WebRTC DataChannel (No server involved!)`,
             isSimulated: false,
           });
           this.notifyState();
         }
         break;
       }
-
-      case 'CHUNK_HEADER': {
-        // Metadata preceding binary chunk
-        (this as any)._pendingChunkHeader = msg;
-        break;
-      }
     }
   }
 
   private async handleBinaryChunk(remotePeerId: string, buffer: ArrayBuffer) {
-    const header = (this as any)._pendingChunkHeader;
-    if (!header) return;
+    if (buffer.byteLength < 8) return;
 
-    const { fileId, chunkIndex } = header;
+    const view = new DataView(buffer);
+    const chunkIndex = view.getUint32(0, false);
+    const fileIdLength = view.getUint32(4, false);
+
+    if (buffer.byteLength < 8 + fileIdLength) return;
+
+    const dec = new TextDecoder();
+    const fileIdBytes = new Uint8Array(buffer, 8, fileIdLength);
+    const fileId = dec.decode(fileIdBytes);
+
+    const chunkBytes = new Uint8Array(buffer, 8 + fileIdLength);
+
     const download = this.activeDownloads.get(fileId);
     if (!download) return;
 
-    const uint8 = new Uint8Array(buffer);
-    const computedHash = await computeSHA256(uint8);
+    const computedHash = await computeSHA256(chunkBytes);
     const expectedHash = download.session.chunks[chunkIndex]?.hash;
-
     const targetChunk = download.session.chunks[chunkIndex];
+
     if (targetChunk) {
       if (expectedHash && computedHash.toLowerCase() === expectedHash.toLowerCase()) {
         targetChunk.status = 'verified';
         targetChunk.computedHash = computedHash;
         targetChunk.sourcePeerId = remotePeerId;
-        download.chunksData.set(chunkIndex, uint8);
+        targetChunk.sourcePeerName = `Peer-${remotePeerId.slice(-4)}`;
+        download.chunksData.set(chunkIndex, chunkBytes);
         download.session.receivedChunks++;
         download.session.verifiedChunks++;
+
+        // Update peer metrics
+        const peer = this.connectedPeers.get(remotePeerId);
+        if (peer) {
+          peer.downloadSpeed += chunkBytes.byteLength;
+          peer.bytesExchanged += chunkBytes.byteLength;
+        }
 
         this.logEvent({
           type: 'INTEGRITY_VERIFIED',
           level: 'success',
           source: 'WebRTC Receiver',
           target: `Chunk #${chunkIndex}`,
-          details: `Direct P2P Chunk #${chunkIndex} verified via SHA-256 (${computedHash.slice(0, 16)}...) from ${remotePeerId}`,
+          details: `[DIRECT P2P] Chunk #${chunkIndex} verified via SHA-256 (${computedHash.slice(0, 16)}...) from ${remotePeerId}`,
           isSimulated: false,
         });
       } else {
@@ -487,7 +555,7 @@ export class WebRTCManager {
       source: 'Crypto Engine',
       target: 'Local Peer',
       details: result.verified 
-        ? `Real WebRTC download completed & root SHA-256 verified! Original file restored.`
+        ? `Direct WebRTC download completed & root SHA-256 verified! Original file restored.`
         : `Reassembly failed: ${result.error}`,
       isSimulated: false,
     });
@@ -544,7 +612,7 @@ export class WebRTCManager {
         type: 'CHUNK_REQUESTED',
         level: 'warn',
         source: 'Downloader',
-        details: 'No direct WebRTC peers currently open. Waiting for peer connections or test in Simulation Mode.',
+        details: 'No direct WebRTC peers currently open. Open a 2nd tab or connect another peer to transfer!',
         isSimulated: false,
       });
     } else {

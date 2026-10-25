@@ -21,6 +21,7 @@ export function App() {
   const [webrtcPeers, setWebrtcPeers] = useState<PeerNode[]>([]);
   const [isSignalingConnected, setIsSignalingConnected] = useState(false);
   const [webrtcAnnouncedFiles, setWebrtcAnnouncedFiles] = useState<FileMetadata[]>([]);
+  const [localSharedFiles, setLocalSharedFiles] = useState<FileMetadata[]>([]);
   const [webrtcDownloads, setWebrtcDownloads] = useState<DownloadSession[]>([]);
 
   // Selected file for inspection in Transfer Inspector
@@ -28,6 +29,12 @@ export function App() {
 
   // Initialize Simulation Engine file and subscribe
   useEffect(() => {
+    // Check URL parameters: e.g. ?mode=webrtc or ?connect=peer-XXXX
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('mode') === 'webrtc') {
+      setActiveMode('webrtc');
+    }
+
     simulationEngine.setCallback((state, event) => {
       setSimulationState(state);
       if (event) {
@@ -49,6 +56,12 @@ export function App() {
       setIsSignalingConnected(state.isConnectedToSignaling);
       setWebrtcPeers(state.peers);
       setWebrtcAnnouncedFiles(state.announcedFiles);
+      setLocalSharedFiles(webrtcManager.getLocalFiles());
+
+      // If remote peers are detected, auto-switch to WebRTC mode so the user sees real P2P!
+      if (state.peers.length > 0) {
+        setActiveMode('webrtc');
+      }
     });
 
     webrtcManager.setDownloadUpdateCallback((updatedSession) => {
@@ -63,19 +76,43 @@ export function App() {
       });
     });
 
-    // Try connecting to signaling server (fails gracefully if offline)
+    // Try connecting to signaling server
     webrtcManager.connectToSignaling();
+
+    // Check if URL asked to connect directly to a peer
+    const targetPeer = params.get('connect');
+    if (targetPeer) {
+      setActiveMode('webrtc');
+      setTimeout(() => {
+        webrtcManager.connectToPeer(targetPeer);
+      }, 1000);
+    }
   }, []);
 
   // Compute active peers & files based on mode
   const activePeers = activeMode === 'simulation' ? simulationState.peers : webrtcPeers;
-  
-  const activeFiles: FileMetadata[] = activeMode === 'simulation'
-    ? (simulationState.fileMetadata ? [simulationState.fileMetadata] : [])
-    : [
-        ...(simulationState.fileMetadata ? [simulationState.fileMetadata] : []),
-        ...webrtcAnnouncedFiles,
-      ];
+
+  // Swarm files: combine local shared files, announced network files, and demo file
+  const activeFiles: FileMetadata[] = (() => {
+    const fileMap = new Map<string, FileMetadata>();
+
+    // Add local shared files (seeding)
+    localSharedFiles.forEach((f) => fileMap.set(f.id, f));
+
+    // Add remote announced files
+    webrtcAnnouncedFiles.forEach((f) => {
+      if (!fileMap.has(f.id)) {
+        fileMap.set(f.id, f);
+      }
+    });
+
+    // Add demo file
+    if (simulationState.fileMetadata && !fileMap.has(simulationState.fileMetadata.id)) {
+      fileMap.set(simulationState.fileMetadata.id, simulationState.fileMetadata);
+    }
+
+    return Array.from(fileMap.values());
+  })();
 
   const activeDownloads: DownloadSession[] = activeMode === 'simulation'
     ? (simulationState.downloadSession ? [simulationState.downloadSession] : [])
@@ -114,9 +151,22 @@ export function App() {
     setEvents([]);
   }, []);
 
+  // Open 2nd peer tab/window for instant P2P testing
+  const handleOpenSecondPeer = useCallback(() => {
+    window.open(`${window.location.origin}/?mode=webrtc&connect=${webrtcManager.getLocalPeerId()}`, '_blank');
+  }, []);
+
+  // Direct peer connect handler
+  const handleConnectToPeer = useCallback((peerId: string) => {
+    setActiveMode('webrtc');
+    webrtcManager.connectToPeer(peerId);
+  }, []);
+
   // File actions
   const handleShareLocalFile = useCallback((metadata: FileMetadata, chunksData: Map<number, Uint8Array>) => {
+    setActiveMode('webrtc');
     webrtcManager.announceLocalFile(metadata, chunksData);
+    setLocalSharedFiles(webrtcManager.getLocalFiles());
     setInspectedFile(metadata);
   }, []);
 
@@ -158,6 +208,7 @@ export function App() {
         onResumeDemo={handleResumeDemo}
         onResetDemo={handleResetDemo}
         onSpeedChange={handleSpeedChange}
+        onOpenSecondPeer={handleOpenSecondPeer}
       />
 
       {/* Main Layout: Numbered Command Gutter + Work Area */}
@@ -189,6 +240,7 @@ export function App() {
               simulationState={simulationState}
               onNavigate={setCurrentTab}
               onStartDemo={handleStartDemo}
+              onOpenSecondPeer={handleOpenSecondPeer}
             />
           )}
 
@@ -206,6 +258,9 @@ export function App() {
             <PeerExplorerPage
               peers={activePeers}
               activeMode={activeMode}
+              localPeerId={webrtcManager.getLocalPeerId()}
+              onConnectToPeer={handleConnectToPeer}
+              onOpenSecondPeer={handleOpenSecondPeer}
               onRefresh={() => webrtcManager.connectToSignaling()}
             />
           )}

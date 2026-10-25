@@ -24,6 +24,13 @@ export class P2PTracker {
   private files: Map<string, SwarmFileRecord> = new Map(); // fileId -> SwarmFileRecord
 
   public registerPeer(socketId: string, peerId: string): TrackerPeer {
+    // Purge any stale socket entry with the exact same peerId
+    for (const [sId, p] of this.peers.entries()) {
+      if (p.peerId === peerId) {
+        this.peers.delete(sId);
+      }
+    }
+
     const peer: TrackerPeer = {
       socketId,
       peerId,
@@ -37,10 +44,6 @@ export class P2PTracker {
     const peer = this.peers.get(socketId);
     if (peer) {
       this.peers.delete(socketId);
-      // Remove peer from seeder lists
-      for (const file of this.files.values()) {
-        file.seeders = file.seeders.filter(id => id !== peer.peerId);
-      }
     }
     return peer;
   }

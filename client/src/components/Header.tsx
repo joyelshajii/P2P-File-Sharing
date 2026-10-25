@@ -12,6 +12,7 @@ interface HeaderProps {
   onResumeDemo: () => void;
   onResetDemo: () => void;
   onSpeedChange: (speed: number) => void;
+  onOpenSecondPeer: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -25,6 +26,7 @@ export const Header: React.FC<HeaderProps> = ({
   onResumeDemo,
   onResetDemo,
   onSpeedChange,
+  onOpenSecondPeer,
 }) => {
   const isSimRunning = simulationState.isRunning;
   const isSimPaused = simulationState.isPaused;
@@ -61,6 +63,15 @@ export const Header: React.FC<HeaderProps> = ({
 
         {/* Mode Selector and Quick Indicators */}
         <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={onOpenSecondPeer}
+            className="bg-[#000000] text-[#66ff66] hover:bg-[#66ff66] hover:text-[#000000] border border-[#66ff66] px-2.5 py-1 text-xs font-bold transition-colors cursor-pointer flex items-center gap-1"
+            title="Open a 2nd peer tab/window to test direct browser-to-browser P2P transfers"
+          >
+            <span>[ + OPEN 2ND PEER TAB ]</span>
+          </button>
+
           <div className="flex items-center border border-[#255325] p-0.5 text-xs">
             <span className="px-2 text-[#58ca58] text-[11px] uppercase tracking-wider">TRANSFER_MODE:</span>
             <button
